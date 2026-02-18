@@ -276,3 +276,4 @@ export class EntityManager {
     this.spatialGrid.clear();
   }
 }
+
