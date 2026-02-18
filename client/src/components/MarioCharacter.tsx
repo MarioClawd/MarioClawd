@@ -214,3 +214,4 @@ function catmullRomInterp(
 }
 
 useGLTF.preload('/models/Mario.glb');
+
