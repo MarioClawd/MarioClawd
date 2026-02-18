@@ -34,3 +34,4 @@ All notable changes to this project will be documented in this file.
 - pump.fun IPFS integration for metadata storage
 - Spatial grid entity management system
 - Arc-length parameterized camera splines
+
