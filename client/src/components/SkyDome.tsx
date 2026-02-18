@@ -112,3 +112,4 @@ export function SkyDome() {
 }
 
 useGLTF.preload('/models/SkyDome.glb');
+
