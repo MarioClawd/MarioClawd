@@ -48,3 +48,4 @@ The following are in scope for security reports:
 - Third-party service outages (pump.fun, PumpPortal, Solana RPC)
 - Social engineering attacks
 - Issues requiring physical access to a user's device
+
