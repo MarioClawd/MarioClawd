@@ -152,3 +152,4 @@ export function CrabEnemies() {
 }
 
 useGLTF.preload('/models/Crab.glb');
+
