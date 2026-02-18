@@ -192,3 +192,4 @@ export class SolanaWallet {
     this.listeners.get(event)?.forEach((cb) => cb(...args));
   }
 }
+
