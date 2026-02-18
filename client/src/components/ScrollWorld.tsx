@@ -198,3 +198,4 @@ export function ScrollWorld({ onComplete, onProgress }: ScrollWorldProps) {
 }
 
 useGLTF.preload('/models/Mario.glb');
+
