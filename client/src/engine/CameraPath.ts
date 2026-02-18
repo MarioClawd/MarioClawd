@@ -148,3 +148,4 @@ export const WORLD_CAMERA_KEYFRAMES: CameraKeyframe[] = [
   { position: [130, 12, 15], lookAt: [135, 8, 5], fov: 58 },
   { position: [145, 10, 10], lookAt: [150, 6, 0], fov: 55 },
 ];
+
