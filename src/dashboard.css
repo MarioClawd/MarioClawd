@@ -288,15 +288,19 @@
   z-index: 5;
   flex: 1;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: center;
   height: calc(100vh - 110px);
   padding: 20px;
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
 .desktop-welcome {
   text-align: center;
   animation: fadeSlideUp 0.6s ease-out;
+  padding-bottom: 40px;
+  margin-top: 20px;
 }
 
 .desktop-welcome h2 {

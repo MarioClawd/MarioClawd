@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom"
 import { VersionedTransaction, Connection } from "@solana/web3.js"
 import { createPhantom, Position } from "@phantom/wallet-sdk"
 import "./dashboard.css"
+import AgentCards from "./AgentCards"
 
 const API = (path) => path
 
@@ -753,6 +754,7 @@ export default function UtilityDashboard() {
                 )
               })}
             </div>
+            <AgentCards />
           </div>
         )}
       </div>
