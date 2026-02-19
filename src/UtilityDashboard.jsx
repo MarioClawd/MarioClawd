@@ -282,12 +282,28 @@ function AgentChat({ toolId, color, walletConnected, walletAddress, connectWalle
     setLoading(false)
   }
 
+  const quickActions = toolId === "lobster" ? [
+    { label: "Register Agent", msg: "I want to register a new agent" },
+    { label: "Browse Feed", msg: "Show me the latest Moltbook feed" },
+    { label: "Post to Moltbook", msg: "I want to post something to Moltbook" },
+    { label: "My Agents", msg: "List my agents" },
+  ] : null
+
   return (
     <div className="app-content chat-app">
       <div className="chat-messages">
         {messages.length === 0 && (
           <div className="chat-empty">
             <p>{config.welcome}</p>
+            {quickActions && (
+              <div className="quick-actions">
+                {quickActions.map((qa, i) => (
+                  <button key={i} className="quick-action-btn" style={{ borderColor: color, color: color }} onClick={() => { setInput(qa.msg); setTimeout(() => sendMessage(qa.msg), 50) }}>
+                    {qa.label}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         )}
         {messages.map((msg, i) => (
