@@ -3,10 +3,15 @@ import cors from "cors"
 import Anthropic from "@anthropic-ai/sdk"
 import { Keypair, VersionedTransaction } from "@solana/web3.js"
 import bs58 from "bs58"
+import pg from "pg"
 
 const app = express()
 app.use(cors())
 app.use(express.json({ limit: "20mb" }))
+
+import path from "path"
+import { fileURLToPath } from "url"
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 const anthropic = new Anthropic({
   apiKey: process.env.AI_INTEGRATIONS_ANTHROPIC_API_KEY || process.env.ANTHROPIC_API_KEY,
@@ -20,10 +25,35 @@ const SYSTEM_PROMPT = `You are Clawd, an AI agent assistant living inside Mario 
 - Trading via Bankr
 Keep responses concise (2-3 sentences max). Use Mario references naturally.`
 
+const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL })
+
+function mapAgentRow(row) {
+  return {
+    id: String(row.id),
+    name: row.name,
+    description: row.description || "",
+    apiKey: row.api_key,
+    createdAt: row.created_at ? new Date(row.created_at).toISOString() : new Date().toISOString(),
+    source: "moltbook",
+  }
+}
+
+function mapLaunchRow(row) {
+  return {
+    name: row.name,
+    symbol: row.symbol,
+    description: row.description || "",
+    mintAddress: row.mint_address,
+    txSignature: row.tx_signature,
+    tradeUrl: row.trade_url,
+    explorerUrl: row.explorer_url,
+    walletAddress: row.wallet_address,
+    timestamp: row.timestamp ? new Date(row.timestamp).toISOString() : new Date().toISOString(),
+  }
+}
+
 const MOLTBOOK_API = "https://www.moltbook.com/api/v1"
-const agentStore = []
 const paymentHistory = []
-const tokenLaunches = []
 
 app.post("/api/chat", async (req, res) => {
   const { message, history = [] } = req.body
@@ -103,7 +133,10 @@ app.post("/api/agents/register", async (req, res) => {
       source: "moltbook",
     }
 
-    agentStore.push(agent)
+    await pool.query(
+      "INSERT INTO agents (name, description, api_key) VALUES ($1, $2, $3)",
+      [agent.name, agent.description, agent.apiKey]
+    )
 
     res.json({
       success: true,
@@ -182,17 +215,14 @@ app.get("/api/agents/:apiKey/status", async (req, res) => {
     const data = await moltRes.json()
 
     if (moltRes.ok) {
-      const localAgent = agentStore.find((a) => a.apiKey === apiKey)
-      if (localAgent && data.status) {
-        localAgent.status = data.status
-      }
       return res.json(data)
     }
 
-    const localAgent = agentStore.find((a) => a.apiKey === apiKey)
-    if (localAgent) {
+    const localResult = await pool.query("SELECT * FROM agents WHERE api_key = $1", [apiKey])
+    if (localResult.rows.length > 0) {
+      const localAgent = mapAgentRow(localResult.rows[0])
       return res.json({
-        status: localAgent.status,
+        status: "registered",
         name: localAgent.name,
         source: "local",
       })
@@ -201,10 +231,11 @@ app.get("/api/agents/:apiKey/status", async (req, res) => {
     res.status(moltRes.status).json({ error: data.error || "Status check failed", details: data })
   } catch (err) {
     console.error("Agent status error:", err.message)
-    const localAgent = agentStore.find((a) => a.apiKey === apiKey)
-    if (localAgent) {
+    const localResult = await pool.query("SELECT * FROM agents WHERE api_key = $1", [apiKey])
+    if (localResult.rows.length > 0) {
+      const localAgent = mapAgentRow(localResult.rows[0])
       return res.json({
-        status: localAgent.status,
+        status: "registered",
         name: localAgent.name,
         source: "local",
       })
@@ -274,15 +305,15 @@ app.post("/api/agents/auto-post", async (req, res) => {
   }
 })
 
-app.get("/api/agents", (req, res) => {
-  res.json({ agents: agentStore })
+app.get("/api/agents", async (req, res) => {
+  const result = await pool.query("SELECT * FROM agents ORDER BY created_at DESC")
+  res.json({ agents: result.rows.map(mapAgentRow) })
 })
 
-app.delete("/api/agents/:id", (req, res) => {
-  const idx = agentStore.findIndex((a) => a.id === req.params.id)
-  if (idx === -1) return res.status(404).json({ error: "Agent not found" })
+app.delete("/api/agents/:id", async (req, res) => {
+  const result = await pool.query("DELETE FROM agents WHERE id = $1 RETURNING *", [req.params.id])
+  if (result.rowCount === 0) return res.status(404).json({ error: "Agent not found" })
 
-  agentStore.splice(idx, 1)
   res.json({ success: true })
 })
 
@@ -471,20 +502,24 @@ app.post("/api/token/prepare", async (req, res) => {
 })
 
 app.post("/api/token/confirm", async (req, res) => {
-  const { name, symbol, mintAddress, txSignature, walletAddress, bannerImage } = req.body
+  const { name, symbol, description, mintAddress, txSignature, walletAddress, bannerImage } = req.body
 
   const launch = {
     name,
     symbol,
+    description: description || "",
     mintAddress,
     txSignature,
     tradeUrl: `https://pump.fun/coin/${mintAddress}`,
     explorerUrl: `https://solscan.io/tx/${txSignature}`,
     walletAddress,
-    createdAt: new Date().toISOString(),
+    timestamp: new Date().toISOString(),
   }
 
-  tokenLaunches.push(launch)
+  await pool.query(
+    "INSERT INTO token_launches (name, symbol, description, mint_address, tx_signature, trade_url, explorer_url, wallet_address) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
+    [launch.name, launch.symbol, launch.description, launch.mintAddress, launch.txSignature, launch.tradeUrl, launch.explorerUrl, launch.walletAddress]
+  )
 
   if (bannerImage && bannerImage.startsWith("data:image") && mintAddress) {
     try {
@@ -534,8 +569,48 @@ app.post("/api/token/confirm", async (req, res) => {
   res.json({ success: true, token: launch })
 })
 
-app.get("/api/token/launches", (req, res) => {
-  res.json({ tokens: tokenLaunches })
+app.get("/api/token/launches", async (req, res) => {
+  const result = await pool.query("SELECT * FROM token_launches ORDER BY timestamp DESC")
+  res.json({ launches: result.rows.map(mapLaunchRow) })
+})
+
+app.get("/api/token/stats", async (req, res) => {
+  const oneDayAgo = new Date(Date.now() - 86400000).toISOString()
+  const oneWeekAgo = new Date(Date.now() - 7 * 86400000).toISOString()
+
+  const [totalResult, todayResult, creatorsResult, leaderboardResult, featuredResult] = await Promise.all([
+    pool.query("SELECT COUNT(*) FROM token_launches"),
+    pool.query("SELECT COUNT(*) FROM token_launches WHERE timestamp > $1", [oneDayAgo]),
+    pool.query("SELECT COUNT(DISTINCT COALESCE(wallet_address, 'Anon')) FROM token_launches"),
+    pool.query(
+      "SELECT COALESCE(wallet_address, 'Anon') AS address, COUNT(*) AS launches, ARRAY_AGG(symbol) AS tokens, MIN(timestamp) AS first_launch FROM token_launches GROUP BY COALESCE(wallet_address, 'Anon') ORDER BY launches DESC LIMIT 20"
+    ),
+    pool.query("SELECT * FROM token_launches WHERE timestamp > $1 ORDER BY timestamp DESC LIMIT 5", [oneWeekAgo]),
+  ])
+
+  const totalLaunches = parseInt(totalResult.rows[0].count)
+  const totalCreators = parseInt(creatorsResult.rows[0].count)
+  const launchesToday = parseInt(todayResult.rows[0].count)
+
+  const leaderboard = leaderboardResult.rows.map(r => ({
+    address: r.address,
+    launches: parseInt(r.launches),
+    tokens: r.tokens.filter(Boolean),
+    firstLaunch: r.first_launch ? new Date(r.first_launch).toISOString() : null,
+  }))
+
+  const featured = featuredResult.rows.map(mapLaunchRow)
+
+  res.json({
+    stats: {
+      totalLaunches,
+      totalCreators,
+      launchesToday,
+      totalVolume: `${(totalLaunches * 0.02).toFixed(2)} SOL`,
+    },
+    leaderboard,
+    featured,
+  })
 })
 
 
@@ -722,7 +797,10 @@ async function executeAgentTool(toolName, toolInput, actions, tokenImage, banner
           createdAt: new Date().toISOString(),
           source: "moltbook",
         }
-        agentStore.push(agent)
+        await pool.query(
+          "INSERT INTO agents (name, description, api_key) VALUES ($1, $2, $3)",
+          [agent.name, agent.description, agent.apiKey]
+        )
         if (agent.claimUrl) actions.push({ type: "claim_agent", claimUrl: agent.claimUrl, apiKey: agent.apiKey, verificationCode: agent.verificationCode, agentName: name })
         return { success: true, agent, message: `Agent "${name}" registered successfully!` }
       } catch (err) {
@@ -737,21 +815,27 @@ async function executeAgentTool(toolName, toolInput, actions, tokenImage, banner
         })
         const data = await moltRes.json()
         if (moltRes.ok) {
-          const localAgent = agentStore.find(a => a.apiKey === api_key)
-          if (localAgent && data.status) localAgent.status = data.status
           return data
         }
-        const localAgent = agentStore.find(a => a.apiKey === api_key)
-        if (localAgent) return { status: localAgent.status, name: localAgent.name }
+        const localResult = await pool.query("SELECT * FROM agents WHERE api_key = $1", [api_key])
+        if (localResult.rows.length > 0) {
+          const localAgent = mapAgentRow(localResult.rows[0])
+          return { status: "registered", name: localAgent.name }
+        }
         return { error: "Agent not found" }
       } catch {
-        const localAgent = agentStore.find(a => a.apiKey === api_key)
-        if (localAgent) return { status: localAgent.status, name: localAgent.name }
+        const localResult = await pool.query("SELECT * FROM agents WHERE api_key = $1", [api_key])
+        if (localResult.rows.length > 0) {
+          const localAgent = mapAgentRow(localResult.rows[0])
+          return { status: "registered", name: localAgent.name }
+        }
         return { error: "Failed to check status" }
       }
     }
     case "list_agents": {
-      return { agents: agentStore, count: agentStore.length }
+      const agentResult = await pool.query("SELECT * FROM agents ORDER BY created_at DESC")
+      const agents = agentResult.rows.map(mapAgentRow)
+      return { agents, count: agents.length }
     }
     case "view_feed": {
       const { api_key, sort } = toolInput
@@ -785,9 +869,9 @@ async function executeAgentTool(toolName, toolInput, actions, tokenImage, banner
     }
     case "delete_agent": {
       const { api_key } = toolInput
-      const idx = agentStore.findIndex(a => a.apiKey === api_key)
-      if (idx === -1) return { success: false, error: "Agent not found with that API key" }
-      const removed = agentStore.splice(idx, 1)[0]
+      const deleteResult = await pool.query("DELETE FROM agents WHERE api_key = $1 RETURNING *", [api_key])
+      if (deleteResult.rowCount === 0) return { success: false, error: "Agent not found with that API key" }
+      const removed = mapAgentRow(deleteResult.rows[0])
       return { success: true, message: `Agent "${removed.name}" removed from your list.` }
     }
     case "compose_trade": {
@@ -967,7 +1051,12 @@ app.post("/api/agent-chat", async (req, res) => {
   }
 })
 
-app.get("/api/status", (req, res) => {
+app.get("/api/status", async (req, res) => {
+  const [launchCount, agentCount] = await Promise.all([
+    pool.query("SELECT COUNT(*) FROM token_launches"),
+    pool.query("SELECT COUNT(*) FROM agents"),
+  ])
+
   res.json({
     services: {
       clawd: {
@@ -985,17 +1074,32 @@ app.get("/api/status", (req, res) => {
       tokenLauncher: {
         status: "active",
         note: "Token launches on Solana",
-        launches: tokenLaunches.length,
+        launches: parseInt(launchCount.rows[0].count),
       },
       moltbook: {
         status: "active",
-        agents: agentStore.length,
+        agents: parseInt(agentCount.rows[0].count),
       },
     },
   })
 })
 
-const PORT = 3001
+import fs from "fs"
+const distPath = path.join(__dirname, "..", "dist")
+const distExists = fs.existsSync(distPath) && fs.existsSync(path.join(distPath, "index.html"))
+
+if (distExists) {
+  console.log("Serving static frontend from:", distPath)
+  app.use(express.static(distPath, { maxAge: 0 }))
+  app.get("/{*path}", (req, res) => {
+    res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate")
+    res.sendFile(path.join(distPath, "index.html"))
+  })
+} else {
+  console.log("No dist folder found at:", distPath, "— frontend must be served separately")
+}
+
+const PORT = process.env.REPL_DEPLOYMENT ? 5000 : 3001
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`Mario OS API server running on port ${PORT}`)
 })
