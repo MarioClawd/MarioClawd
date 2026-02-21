@@ -3,7 +3,9 @@ import { useNavigate } from "react-router-dom"
 import { VersionedTransaction, Connection } from "@solana/web3.js"
 import { createPhantom, Position } from "@phantom/wallet-sdk"
 import "./dashboard.css"
+import "./token-factory.css"
 import AgentCards from "./AgentCards"
+import TokenFactoryHub from "./TokenFactoryHub"
 
 const API = (path) => path
 
@@ -440,9 +442,11 @@ function AgentChat({ toolId, color, walletConnected, walletAddress, connectWalle
 }
 
 
-function AppWindow({ app, onClose, walletConnected, walletAddress, connectWallet, messages, setMessages, onSignTransaction }) {
+function AppWindow({ app, onClose, walletConnected, walletAddress, connectWallet, messages, setMessages, onSignTransaction, factoryView, setFactoryView }) {
+  const isFactoryHub = app.id === "factory" && factoryView === "hub"
+
   return (
-    <div className="app-window" style={{ "--app-color": app.color }}>
+    <div className={`app-window ${isFactoryHub ? "app-window-factory" : ""}`} style={{ "--app-color": app.color }}>
       <div className="window-titlebar">
         <div className="titlebar-left">
           <div className="window-dot red" onClick={onClose} />
@@ -450,11 +454,21 @@ function AppWindow({ app, onClose, walletConnected, walletAddress, connectWallet
           <div className="window-dot green" />
         </div>
         <span className="window-title">{app.name} — {app.tagline}</span>
-        <div className="titlebar-right" />
+        {app.id === "factory" && (
+          <div className="titlebar-right factory-tabs">
+            <button className={`factory-tab ${factoryView === "hub" ? "active" : ""}`} onClick={() => setFactoryView("hub")}>Hub</button>
+            <button className={`factory-tab ${factoryView === "mint" ? "active" : ""}`} onClick={() => setFactoryView("mint")}>Mint Agent</button>
+          </div>
+        )}
+        {app.id !== "factory" && <div className="titlebar-right" />}
       </div>
 
       <div className="window-body">
-        <AgentChat toolId={app.id} color={app.color} walletConnected={walletConnected} walletAddress={walletAddress} connectWallet={connectWallet} messages={messages} setMessages={setMessages} onSignTransaction={onSignTransaction} />
+        {isFactoryHub ? (
+          <TokenFactoryHub onOpenMintAgent={() => setFactoryView("mint")} walletAddress={walletAddress} />
+        ) : (
+          <AgentChat toolId={app.id} color={app.color} walletConnected={walletConnected} walletAddress={walletAddress} connectWallet={connectWallet} messages={messages} setMessages={setMessages} onSignTransaction={onSignTransaction} />
+        )}
       </div>
     </div>
   )
@@ -484,6 +498,7 @@ export default function UtilityDashboard() {
       [toolId]: typeof updater === "function" ? updater(prev[toolId]) : updater,
     }))
   }
+  const [factoryView, setFactoryView] = useState("hub")
   const [walletConnected, setWalletConnected] = useState(false)
   const [walletAddress, setWalletAddress] = useState("")
   const [walletBalance, setWalletBalance] = useState("")
@@ -588,9 +603,7 @@ export default function UtilityDashboard() {
       setMsgs(prev => [...prev, { role: "assistant", text: "Waiting for wallet approval...", agent: "Mint Agent", time: new Date() }])
       const txBytes = Uint8Array.from(atob(action.transaction), c => c.charCodeAt(0))
       const tx = VersionedTransaction.deserialize(txBytes)
-      const signed = await provider.signTransaction(tx)
-      const signature = await solConnection.current.sendRawTransaction(signed.serialize(), { skipPreflight: false, preflightCommitment: "confirmed" })
-      await solConnection.current.confirmTransaction(signature, "confirmed")
+      const { signature } = await provider.signAndSendTransaction(tx, { skipPreflight: false, preflightCommitment: "confirmed" })
 
       const tradeUrl = `https://pump.fun/coin/${action.mintPublicKey}`
       const explorerUrl = `https://solscan.io/tx/${signature}`
@@ -598,7 +611,7 @@ export default function UtilityDashboard() {
       fetch(API("/api/token/confirm"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: action.name, symbol: action.symbol, mintAddress: action.mintPublicKey, txSignature: signature, walletAddress, bannerImage: action.bannerImage || "" }),
+        body: JSON.stringify({ name: action.name, symbol: action.symbol, description: action.description || "", mintAddress: action.mintPublicKey, txSignature: signature, walletAddress, bannerImage: action.bannerImage || "" }),
       }).catch(() => {})
 
       setMsgs(prev => [...prev, {
@@ -664,7 +677,7 @@ export default function UtilityDashboard() {
     )
   }
 
-  const openApp = APPS.find((a) => a.id === activeApp && a.id === "lobster")
+  const openApp = APPS.find((a) => a.id === activeApp && (a.id === "lobster" || a.id === "factory"))
 
   return (
     <div className="mario-os">
@@ -723,7 +736,7 @@ export default function UtilityDashboard() {
 
       <div className="os-desktop">
         {openApp && (
-          <AppWindow app={openApp} onClose={() => setActiveApp(null)} walletConnected={walletConnected} walletAddress={walletAddress} connectWallet={connectWallet} messages={chatStates[openApp.id]} setMessages={setChatMessages(openApp.id)} onSignTransaction={handleSignTransaction} />
+          <AppWindow app={openApp} onClose={() => { setActiveApp(null); setFactoryView("hub") }} walletConnected={walletConnected} walletAddress={walletAddress} connectWallet={connectWallet} messages={chatStates[openApp.id]} setMessages={setChatMessages(openApp.id)} onSignTransaction={handleSignTransaction} factoryView={factoryView} setFactoryView={setFactoryView} />
         )}
 
         {!openApp && (
@@ -732,7 +745,7 @@ export default function UtilityDashboard() {
             <p>Click a pipe, block, or castle to get started</p>
             <div className="welcome-icons">
               {APPS.map((app) => {
-                const isLive = app.id === "lobster"
+                const isLive = app.id === "lobster" || app.id === "factory"
                 return (
                 <div
                   key={app.id}
@@ -767,7 +780,7 @@ export default function UtilityDashboard() {
         </div>
         <div className="taskbar-apps">
           {APPS.map((app) => {
-            const isLive = app.id === "lobster"
+            const isLive = app.id === "lobster" || app.id === "factory"
             return (
             <TaskbarIcon
               key={app.id}
