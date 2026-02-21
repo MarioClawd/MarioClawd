@@ -464,6 +464,44 @@
   width: 48px;
 }
 
+.app-window-factory {
+  max-width: 900px;
+  width: 95%;
+}
+
+.app-window-factory .window-body {
+  padding: 0;
+}
+
+.factory-tabs {
+  display: flex;
+  gap: 4px;
+  width: auto;
+}
+
+.factory-tab {
+  font-family: var(--pixel-font);
+  font-size: 7px;
+  padding: 4px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.05);
+  color: rgba(255, 255, 255, 0.5);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.factory-tab:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.factory-tab.active {
+  background: rgba(243, 156, 18, 0.2);
+  border-color: rgba(243, 156, 18, 0.5);
+  color: #F39C12;
+}
+
 .window-body {
   padding: 20px;
   overflow-y: auto;
